@@ -3,9 +3,14 @@ import cv2
 import rospy
 import rospkg
 import sys
+import struct
+import ctypes
+import math
+
 import cv2.cv as cv
-from sensor_msgs.msg import Image, CameraInfo
+from sensor_msgs.msg import Image, CameraInfo, PointCloud2
 from cv_bridge import CvBridge, CvBridgeError
+import sensor_msgs.point_cloud2 as pc2
 
 class colorDetect:
     x= [None] * 100
@@ -29,9 +34,58 @@ class colorDetect:
         cv.NamedWindow("Depth Image", cv.CV_WINDOW_NORMAL)
         cv.MoveWindow("Depth Image", 25, 350)
 
+        # And one for the depth image
+        cv.NamedWindow("Point Cloud", cv.CV_WINDOW_NORMAL)
+        cv.MoveWindow("Point Cloud", 400, 350)
+
         self.bridge = CvBridge()
         self.image_sub = rospy.Subscriber("/camera/rgb/image_raw", Image, self.image_callback)
         self.depth_sub = rospy.Subscriber("/camera/depth/image_raw", Image, self.depth_callback)
+        #self.camera_info_sub = rospy.Subscriber("/camera/depth/camera_info", CameraInfo, self.camera_info_callback)
+        #self.camera_info_pub = rospy.Publisher("/camera_info", CameraInfo, queue_size=10)
+        #self.depth_pub = rospy.Publisher("/image_rect", Image, queue_size=10)
+        self.pcl_sub = rospy.Subscriber("/camera/depth/points", PointCloud2, self.pcl_callback)
+
+    def camera_info_callback(self, camera_info):
+        self.camera_info_pub.publish(camera_info)
+
+    def pcl_callback(self, point_cloud):
+        gen = pc2.read_points(point_cloud, skip_nans=False)
+        h = point_cloud.header
+        int_data = list(gen)
+        print(len(int_data))
+        #640 x 480 Point Cloud: 307200 if NaN is not skipped
+
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        i = 0
+        j = 0
+        for x in int_data:
+            #print(i)
+            if math.isnan(x[0]):
+                x0 = 0
+            else:
+                x0 = x[0]
+
+            if math.isnan(x[1]):
+                x1 = 0
+            else:
+                x1 = x[1]
+            if math.isnan(x[2]):
+                x2 = 0
+            else:
+                x2 = x[2]
+            frame[i][j] = [int(x0 * 256), int(x1 * 256), int(x2 * 256)]
+
+            if j < 639:
+                j = j + 1
+            else:
+                i = i + 1
+                j = 0
+
+        cv2.imshow("Point Cloud", frame)
+
+
+
 
     def image_callback(self, ros_image):
         # Use cv_bridge() to convert the ROS image to OpenCV format
@@ -90,12 +144,15 @@ class colorDetect:
                 rospy.signal_shutdown("User hit q key to quit.")
 
     def depth_callback(self, ros_image):
+
+        #self.depth_pub.publish(ros_image)
         # Use cv_bridge() to convert the ROS image to OpenCV format
         try:
             # The depth image is a single-channel float32 image
             depth_image = self.bridge.imgmsg_to_cv2(ros_image, "32FC1")
         except CvBridgeError, e:
             print e
+
 
         # Convert the depth image to a Numpy array since most cv2 functions
         # require Numpy arrays.
@@ -111,11 +168,12 @@ class colorDetect:
                 break
             cv2.rectangle(depth_display_image, (self.x[i]/2, self.y[i]/2), (self.x[i]/2 + self.w[i]/2, self.y[i]/2 + self.h[i]/2), (255, 255, 255), 3)
             cv2.rectangle(depth_display_image, (self.x[i]/2+320, self.y[i]/2), (self.x[i]/2+320 + self.w[i]/2, self.y[i]/2 + self.h[i]/2), (255, 255, 255), 3)
-            print(repr(i) + "1:")
-            print(depth_display_image[self.x[i]/2 + self.w[i] / 4][self.y[i]/2 + self.h[i] / 4])
-            print(repr(i) + "2:")
-            print(depth_display_image[160+ self.x[i] / 2 + self.w[i] / 4][160+ self.y[i] / 2 + self.h[i] / 4])
+         #   print(repr(i) + "1:")
+          #  print(depth_display_image[self.x[i]/2 + self.w[i] / 4][self.y[i]/2 + self.h[i] / 4])
+         #   print(repr(i) + "2:")
+         #   print(depth_display_image[160+ self.x[i] / 2 + self.w[i] / 4][160+ self.y[i] / 2 + self.h[i] / 4])
         # Display the result
+
         cv2.imshow("Depth Image", depth_display_image)
 
     def process_image(self, frame):
@@ -132,6 +190,7 @@ class colorDetect:
 
     def process_depth_image(self, frame):
         # Just return the raw image for this demo
+
         return frame
 
     def cleanup(self):
