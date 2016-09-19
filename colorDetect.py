@@ -6,11 +6,14 @@ import sys
 import struct
 import ctypes
 import math
+import tf
 
 import cv2.cv as cv
 from sensor_msgs.msg import Image, CameraInfo, PointCloud2
 from cv_bridge import CvBridge, CvBridgeError
 import sensor_msgs.point_cloud2 as pc2
+
+from geometry_msgs.msg import PoseStamped
 
 class colorDetect:
     x= [None] * 100
@@ -45,9 +48,31 @@ class colorDetect:
         #self.camera_info_pub = rospy.Publisher("/camera_info", CameraInfo, queue_size=10)
         #self.depth_pub = rospy.Publisher("/image_rect", Image, queue_size=10)
         self.pcl_sub = rospy.Subscriber("/camera/depth/points", PointCloud2, self.pcl_callback)
+        self.pos_pub = rospy.Publisher('/my_pos', PoseStamped, queue_size=100)
+        self.transListen = tf.TransformListener()
 
     def camera_info_callback(self, camera_info):
         self.camera_info_pub.publish(camera_info)
+
+    def transform(self, z, y, x):
+        cubicPose = PoseStamped()
+        cubicPose.header.stamp = rospy.Time.now()
+        cubicPose.header.frame_id = '/openni_camera_link'
+        cubicPose.pose.position.x = x
+        cubicPose.pose.position.y = y
+        cubicPose.pose.position.z = z
+        cubicPose.pose.orientation.x = 0.0
+        cubicPose.pose.orientation.y = 0.0
+        cubicPose.pose.orientation.z = 0.0
+        cubicPose.pose.orientation.w = 1.0
+        now = rospy.Time.now()
+
+        self.transListen.waitForTransform('/openni_camera_link', 'tabletop_ontop', now, rospy.Duration(4.0))
+        cubicPose2 = self.transListen.transformPose('tabletop_ontop', cubicPose)
+        self.pos_pub.publish(cubicPose2)
+        # Publish the new pose.
+
+
 
     def pcl_callback(self, point_cloud):
         gen = pc2.read_points(point_cloud, skip_nans=False)
@@ -55,37 +80,22 @@ class colorDetect:
         int_data = list(gen)
         print(len(int_data))
         #640 x 480 Point Cloud: 307200 if NaN is not skipped
-
-        frame = np.zeros((480, 640, 3), dtype=np.uint8)
-        i = 0
-        j = 0
-        for x in int_data:
-            #print(i)
-            if math.isnan(x[0]):
-                x0 = 0
-            else:
-                x0 = x[0]
-
-            if math.isnan(x[1]):
-                x1 = 0
-            else:
-                x1 = x[1]
-            if math.isnan(x[2]):
-                x2 = 0
-            else:
-                x2 = x[2]
-            frame[i][j] = [int(x0 * 256), int(x1 * 256), int(x2 * 256)]
-
-            if j < 639:
-                j = j + 1
-            else:
-                i = i + 1
-                j = 0
-
-        cv2.imshow("Point Cloud", frame)
+        #print(int_data[153599])
+        #print(int_data[153600])
+        #print(int_data[153601])
 
 
-
+        cubic1 = [self.x[0] + self.w[0] / 2, self.y[0] +  self.h[0] / 2]
+        cubic2 = [self.x[1] + self.w[1] / 2, self.y[1] +  self.h[1] / 2]
+        print("pcl")
+        p1 = int_data[int(cubic1[1] * 640 + cubic1[0])]
+        p2 = int_data[int(cubic2[1] * 640 + cubic2[0])]
+        print(p1)
+        print(p2)
+        #print(int_data[153600])
+        self.transform(0, 0, 0)
+        self.transform(p1[0],p1[1], p1[2])
+        self.transform(p2[0],p2[1], p2[2])
 
     def image_callback(self, ros_image):
         # Use cv_bridge() to convert the ROS image to OpenCV format
@@ -132,7 +142,7 @@ class colorDetect:
             cv2.rectangle(frame, (self.x[i], self.y[i]), (self.x[i] + self.w[i], self.y[i] + self.h[i]), (255, 255, 255), 3)
             i = i + 1
 
-
+        cv2.rectangle(frame, (0, 0), (10, 5), (255, 255, 255), 3)
         cv2.imshow(self.node_name, frame)
 
         # Process any keyboard commands
@@ -149,7 +159,7 @@ class colorDetect:
         # Use cv_bridge() to convert the ROS image to OpenCV format
         try:
             # The depth image is a single-channel float32 image
-            depth_image = self.bridge.imgmsg_to_cv2(ros_image, "32FC1")
+            depth_image = self.bridge.imgmsg_to_cv2(ros_image)
         except CvBridgeError, e:
             print e
 
@@ -157,24 +167,38 @@ class colorDetect:
         # Convert the depth image to a Numpy array since most cv2 functions
         # require Numpy arrays.
         depth_array = np.array(depth_image, dtype=np.float32)
-
+        depth_array_normal = np.zeros((480, 640), dtype=np.float32)
         # Normalize the depth image to fall between 0 (black) and 1 (white)
-        cv2.normalize(depth_array, depth_array, 0, 1, cv2.NORM_MINMAX)
+        cv2.normalize(depth_array, depth_array_normal, 0, 1, cv2.NORM_MINMAX)
 
         # Process the depth image
-        depth_display_image = self.process_depth_image(depth_array)
+        depth_display_image = self.process_depth_image(depth_array_normal)
         for i in range(0, len(self.x)-1):
             if self.x[i] is None:
                 break
-            cv2.rectangle(depth_display_image, (self.x[i]/2, self.y[i]/2), (self.x[i]/2 + self.w[i]/2, self.y[i]/2 + self.h[i]/2), (255, 255, 255), 3)
-            cv2.rectangle(depth_display_image, (self.x[i]/2+320, self.y[i]/2), (self.x[i]/2+320 + self.w[i]/2, self.y[i]/2 + self.h[i]/2), (255, 255, 255), 3)
-         #   print(repr(i) + "1:")
+            #cv2.rectangle(depth_display_image, (self.x[i]/2, self.y[i]/2), (self.x[i]/2 + self.w[i]/2, self.y[i]/2 + self.h[i]/2), (255, 255, 255), 3)
+            #cv2.rectangle(depth_display_image, (self.x[i]/2+320, self.y[i]/2), (self.x[i]/2+320 + self.w[i]/2, self.y[i]/2 + self.h[i]/2), (255, 255, 255), 3)
+            #cv2.rectangle(depth_display_image, (self.x[i], self.y[i]), (self.x[i] + self.w[i], self.y[i] + self.h[i]),
+            #                  (255, 255, 255), 3)
+
+                #   print(repr(i) + "1:")
           #  print(depth_display_image[self.x[i]/2 + self.w[i] / 4][self.y[i]/2 + self.h[i] / 4])
          #   print(repr(i) + "2:")
          #   print(depth_display_image[160+ self.x[i] / 2 + self.w[i] / 4][160+ self.y[i] / 2 + self.h[i] / 4])
         # Display the result
 
         cv2.imshow("Depth Image", depth_display_image)
+        #cubic1 = (self.x[0] + self.h[0] / 2) /2 * 320 + (self.y[0] + self.w[0] / 2) / 2
+        #cubic2 = (self.x[1] + self.h[1] / 2) /2 * 320 + (self.y[1] + self.w[1] / 2) / 2
+        print("d0")
+        #print(depth_array[(self.x[0] + self.h[0] / 2) /2][(self.y[0] + self.w[0] / 2) / 2])
+        print(depth_array[(self.x[0]+self.w[0]/2)][(self.y[0]+self.h[0]/2)])
+        #print(depth_array[160][120])
+        print("d1")
+
+        #print(depth_array[(self.x[1] + self.h[1] / 2) /2][(self.y[1] + self.w[1] / 2) / 2])
+        print(depth_array[(self.x[1]+self.w[1]/2)][(self.y[1]+self.h[1]/2)])
+
 
     def process_image(self, frame):
         # Convert to greyscale

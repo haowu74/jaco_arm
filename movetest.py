@@ -13,6 +13,7 @@ class Wrapper:
         #self.group.set_start_state_to_current_state()
         #self.group.set_end_effector_link("jaco_6_hand_limb")
         self.robot = moveit_commander.RobotCommander()
+        #self.pos_sub = rospy.Subscriber("/my_pos", )
 
     def setPose(self, deltaX, deltaY, deltaZ):
         #self.group.set_pose_reference_frame("arm_stand")
@@ -26,17 +27,17 @@ class Wrapper:
         pose_target.header.stamp = rospy.Time.now()
         pose_target.header.frame_id = "/world"
 
-        pose_target.pose.orientation.w = current.orientation.w
-        pose_target.pose.orientation.x = current.orientation.x
-        pose_target.pose.orientation.y = current.orientation.y
-        pose_target.pose.orientation.z = current.orientation.z
+        pose_target.pose.orientation.w = 1#current.orientation.w
+        pose_target.pose.orientation.x = 0#current.orientation.x
+        pose_target.pose.orientation.y = 0#current.orientation.y
+        pose_target.pose.orientation.z = 0#current.orientation.z
         #pose_target.orientation.w = 0.17
         #pose_target.orientation.x = -0.01
         #pose_target.orientation.y = 0.98
         #pose_target.orientation.z = 0
-        pose_target.pose.position.x = current.position.x + deltaX
-        pose_target.pose.position.y = current.position.y + deltaY
-        pose_target.pose.position.z = current.position.z + deltaZ
+        pose_target.pose.position.x = 0.45 #0.248448447363 #current.position.x + deltaX
+        pose_target.pose.position.y = 0.05 #0.0541192093905 #current.position.y + deltaY
+        pose_target.pose.position.z = 1.12 #0.723365499473 #current.position.z + deltaZ
         #pose_target.pose.position.x = 0.89
         #pose_target.pose.position.y = -0.35
         #pose_target.pose.position.z = 1.2
@@ -48,11 +49,13 @@ class Wrapper:
         #self.group.clear_pose_targets()
         print(pose_target)
 
+        '''
         group_variable_values = self.group.get_current_joint_values()
         group_variable_values[0] = 1.0
         self.group.set_joint_value_target(group_variable_values)
         plan2 = self.group.plan()
         self.group.go(True)
+        '''
 
 if __name__ == '__main__':
     moveit_commander.roscpp_initialize(sys.argv)
@@ -68,6 +71,8 @@ if __name__ == '__main__':
     # print(r2w.group.group.get_current_pose().pose)
     # print "============ Reference frame: %s" % r2w.group.get_planning_frame()
     # print "end effector: %s" % r2w.group.get_end_effector_link()
+
+
 
     while True:
         time.sleep(2)

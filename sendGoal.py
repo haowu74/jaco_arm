@@ -10,6 +10,7 @@ FRAME = 'tabletop_ontop'
 class Wrapper:
     def __init__(self):
         self.group = moveit_commander.MoveGroupCommander("Arm")
+        self.scene = moveit_commander.PlanningSceneInterface()
         self.group.set_pose_reference_frame(FRAME)
         self.robot = RobotCommander()
         rospy.sleep(1)
