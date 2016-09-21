@@ -17,11 +17,10 @@ GROUP_NAME_GRIPPER = 'Hand'
 
 GRIPPER_FRAME = 'tabletop_ontop'
 
-GRIPPER_OPEN = [0.0] * 6
-GRIPPER_CLOSED = [0.15,0.15,0.15,0.6981,0.6981,0.6981]
+GRIPPER_OPEN = [0] * 4
+GRIPPER_CLOSED = [0,0.6981,0.6981,0.6981]
 
-GRIPPER_JOINT_NAMES = ['finger_joint_0','finger_joint_1','finger_joint_2','finger_joint_3','finger_joint_4','finger_joint_5']
-
+GRIPPER_JOINT_NAMES = ['arm_5_joint', 'finger_joint_0', 'finger_joint_2', 'finger_joint_4']
 GRIPPER_EFFORT = [1.0]
 
 REFERENCE_FRAME = 'tabletop_ontop'
@@ -47,7 +46,12 @@ class MoveItDemo:
                         
         # Initialize the move group for the jaco arm
         jaco_arm = MoveGroupCommander(GROUP_NAME_ARM)
+
+        # Initialize the move group for the right gripper
+        right_gripper = MoveGroupCommander(GROUP_NAME_GRIPPER)
         
+        jaco_arm.set_end_effector_link('6_hand_limb')
+
         # Get the name of the end-effector link
         end_effector_link = jaco_arm.get_end_effector_link()
  
@@ -97,16 +101,17 @@ class MoveItDemo:
         box1_pose.header.frame_id = "tabletop_ontop"
         box1_pose.pose.position.x = 0
         box1_pose.pose.position.y = 0
-        box1_pose.pose.position.z = box1_size[2] / 2.0
+        box1_pose.pose.position.z = box1_size[2]
         box1_pose.pose.orientation.w = 1.0   
-        scene.add_box(box1_id, box1_pose, box1_size)
-        
+        #scene.add_box(box1_id, box1_pose, box1_size)
+
         # Make the table red and the boxes orange
         self.setColor(box1_id, 0.8, 0.4, 0, 1.0)
         # Send the colors to the planning scene
         self.sendColors()
         # Initialize the grasp pose to the box1 pose
         grasp_pose = box1_pose
+
        # Generate a list of grasps
         grasp = self.make_grasps(grasp_pose, [box1_id])
 
@@ -183,21 +188,23 @@ class MoveItDemo:
         # Set the pre-grasp and grasp postures appropriately
         g.pre_grasp_posture = self.make_gripper_posture(GRIPPER_OPEN)
         g.grasp_posture = self.make_gripper_posture(GRIPPER_CLOSED)
-                
+
         # Set the approach and retreat parameters as desired
-        g.pre_grasp_approach = self.make_gripper_translation(0.4, 0.01, [0.0, 1.0, 0.0])
-        g.post_grasp_retreat = self.make_gripper_translation(0.6, 0.01, [0.0, 0.0, 1.0])
+        g.pre_grasp_approach = self.make_gripper_translation(0.1, 0.1, [0.0, 1.0, 0.0])
+        g.post_grasp_retreat = self.make_gripper_translation(0.1, 0.15, [0.0, 0.0, 1.0])
         
         # Set the first grasp pose to the input pose
         g.grasp_pose = initial_pose_stamped
         
-        orient = Quaternion(*tf.transformations.quaternion_from_euler(0, -1.4, 0))
+        orient = Quaternion(*tf.transformations.quaternion_from_euler(-0.81473782016728, -1.5353834214261521, 0.5270780713957257))
         g.grasp_pose.pose.orientation = orient
 
         # Set the allowed touch objects to the input list
         g.allowed_touch_objects = allowed_touch_objects
         # Degrade grasp quality for increasing pitch angles
         g.grasp_quality = 1.0
+
+        g.max_contact_force = 0
                     
         # Return the list
         return g
@@ -235,5 +242,3 @@ class MoveItDemo:
 
 if __name__ == "__main__":
     MoveItDemo()
-
-    
