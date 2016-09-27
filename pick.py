@@ -61,10 +61,7 @@ if __name__=='__main__':
 
 	#jaco_arm.pick("box")
 	# grasps = [] 
-	hand.set_joint_value_target([0,0,0,0])
-	hand.go()
 
-	rospy.sleep(1)
 	# g = Grasp() 
 	# g.id = "test" 
 	grasp_pose = PoseStamped() 
@@ -79,7 +76,7 @@ if __name__=='__main__':
 	jaco_arm.go() 
 	rospy.sleep(1)
 
-	hand.set_joint_value_target([0,0.011539062485098839, 0.012085937894880772, 0.012195312418043613])
+	hand.set_joint_value_target([0,0.2,0.2,0.2])
 	hand.go()
 
 	rospy.sleep(1)
@@ -145,4 +142,5 @@ if __name__=='__main__':
 	# # pick the object
 	# jaco_arm.pick("box", grasps)
 
-	rospy.shutdown()
+	rospy.spin()
+	roscpp_shutdown()
