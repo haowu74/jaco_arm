@@ -7,6 +7,7 @@ import struct
 import ctypes
 import math
 import tf
+import io
 
 import cv2.cv as cv
 from sensor_msgs.msg import Image, CameraInfo, PointCloud2
@@ -42,13 +43,13 @@ class colorDetect:
         cv.MoveWindow("Point Cloud", 400, 350)
 
         self.bridge = CvBridge()
-        self.image_sub = rospy.Subscriber("/camera/rgb/image_raw", Image, self.image_callback)
-        self.depth_sub = rospy.Subscriber("/camera/depth/image_raw", Image, self.depth_callback)
+        self.image_sub = rospy.Subscriber("/kinect2/hd/image_color", Image, self.image_callback)
+        #self.depth_sub = rospy.Subscriber("/camera/depth/image_raw", Image, self.depth_callback)
         #self.camera_info_sub = rospy.Subscriber("/camera/depth/camera_info", CameraInfo, self.camera_info_callback)
         #self.camera_info_pub = rospy.Publisher("/camera_info", CameraInfo, queue_size=10)
         #self.depth_pub = rospy.Publisher("/image_rect", Image, queue_size=10)
-        self.pcl_sub = rospy.Subscriber("/camera/depth/points", PointCloud2, self.pcl_callback)
-        self.pos_pub = rospy.Publisher('/my_pos', PoseStamped, queue_size=100)
+        #self.pcl_sub = rospy.Subscriber("/camera/depth/points", PointCloud2, self.pcl_callback)
+        #self.pos_pub = rospy.Publisher('/my_pos', PoseStamped, queue_size=100)
         self.transListen = tf.TransformListener()
 
     def camera_info_callback(self, camera_info):
@@ -79,10 +80,6 @@ class colorDetect:
         h = point_cloud.header
         int_data = list(gen)
         print(len(int_data))
-        #640 x 480 Point Cloud: 307200 if NaN is not skipped
-        #print(int_data[153599])
-        #print(int_data[153600])
-        #print(int_data[153601])
 
 
         cubic1 = [self.x[0] + self.w[0] / 2, self.y[0] +  self.h[0] / 2]
@@ -100,31 +97,44 @@ class colorDetect:
     def image_callback(self, ros_image):
         # Use cv_bridge() to convert the ROS image to OpenCV format
         try:
-            frame = self.bridge.imgmsg_to_cv2(ros_image, "bgr8")
+            frame_bgr = self.bridge.imgmsg_to_cv2(ros_image, "bgr8")
         except CvBridgeError, e:
             print e
 
         # Convert the image to a Numpy array since most cv2 functions
         # require Numpy arrays.
-
-        frame = np.array(frame, dtype=np.uint8)
-
+        frame = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
+        '''
+                index = 0
+                for row in frame:
+                    for x in row:
+                        print index, ':', x
+                        index = index + 1
+        '''
+        #frame = np.array(frame, dtype=np.uint8)
+        #exit(0)
         # Process the frame using the process_image() function
         #display_image = self.process_image(frame)
-        lower = [0, 0, 0]
-        upper = [90, 255, 255]
-        lower = np.array(lower, dtype=np.uint8)
-        upper = np.array(upper, dtype=np.uint8)
+        lower = np.array([90, 100, 100])
+        upper = np.array([125, 255, 255])
+        #lower = np.array(lower, dtype=np.uint8)
+        #upper = np.array(upper, dtype=np.uint8)
 
         # find the colors within the specified boundaries and apply
         # the mask
         mask = cv2.inRange(frame, lower, upper)
+
+        moments = cv2.moments(mask)
+        vert_centre = moments['m01'] / moments['m00'];
+        horz_centre = moments['m10'] / moments['m00'];
+
         output = cv2.bitwise_and(frame, frame, mask=mask)
         # Display the image.
 
-        output2 = cv2.cvtColor(output, cv2.COLOR_BGR2GRAY)
+        output1 = cv2.cvtColor(output, cv2.COLOR_HSV2BGR)
+        output2 = cv2.cvtColor(output1, cv2.COLOR_BGR2GRAY)
         #print(output)
-        ret, thresh = cv2.threshold(output2, 120, 255, cv2.THRESH_BINARY)
+        ret, thresh = cv2.threshold(output2, 10, 255, cv2.THRESH_BINARY)
         contours, hierarchy = cv2.findContours(thresh, 1, 2)
         i = 0
         for contour in contours:
@@ -139,11 +149,11 @@ class colorDetect:
             self.y[i] = (y0)
             self.w[i] = (w0)
             self.h[i] = (h0)
-            cv2.rectangle(frame, (self.x[i], self.y[i]), (self.x[i] + self.w[i], self.y[i] + self.h[i]), (255, 255, 255), 3)
+            cv2.rectangle(output2, (self.x[i], self.y[i]), (self.x[i] + self.w[i], self.y[i] + self.h[i]), (255, 255, 255), 3)
             i = i + 1
 
-        cv2.rectangle(frame, (0, 0), (10, 5), (255, 255, 255), 3)
-        cv2.imshow(self.node_name, frame)
+        cv2.rectangle(frame_bgr, (0, 0), (10, 5), (255, 255, 255), 3)
+        cv2.imshow(self.node_name, frame_bgr)
 
         # Process any keyboard commands
         self.keystroke = cv.WaitKey(5)
