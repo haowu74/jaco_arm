@@ -55,7 +55,7 @@ if __name__=='__main__':
 	p.pose.position.x = 0
 	p.pose.position.y = 0
 	p.pose.position.z = 0.05
-	scene.add_box("box", p, (0.05, 0.05, 0.05)) 
+	#scene.add_box("box", p, (0.05, 0.05, 0.05))
 
 	rospy.sleep(1) 
 
