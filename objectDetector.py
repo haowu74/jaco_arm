@@ -134,6 +134,31 @@ class calibration:
         y13 = self.points[2][1]
         z13 = self.points[2][2]
 
+        #Simulation
+        x11 = 0.0348
+        y11 = 0.0681
+        z11 = 1.072
+
+        x01 = 0
+        y01 = -0.035
+        z01 = -0.035
+
+        x12 = 0.0748
+        y12 = 0.1571
+        z12 = 0.61
+
+        x02 = 0.075
+        y02 = -0.035
+        z02 = -0.5
+
+        x13 = 0.178
+        y13 = 0.0755
+        z13 = 1.053
+
+        x03 = 0.15
+        y03 = -0.035
+        z03 = -0.035
+
         rsq1 = x11 ** 2 + y11 ** 2 + z11 ** 2
         rsq2 = x12 ** 2 + y12 ** 2 + z12 ** 2
         rsq3 = x13 ** 2 + y13 ** 2 + z13 ** 2
@@ -142,13 +167,15 @@ class calibration:
             results = solve([(x - x01) ** 2 + (y - y01) ** 2 + (z - z01) ** 2 - rsq1,
                             (x - x02) ** 2 + (y - y02) ** 2 + (z - z02) ** 2 - rsq2,
                             (x - x03) ** 2 + (y - y03) ** 2 + (z - z03) ** 2 - rsq3], [x, y, z])
+
         except:
             print "calculating position failed"
             return
 
         for result in results:
-            if result[2] > 0:
+            if result[1] > 0:
                 self.cameraPos = (result[0], result[1], result[2])
+                print self.cameraPos
                 break
 
         x21 = x01 - result[0]
@@ -158,11 +185,16 @@ class calibration:
         #pitch = math.atan(x21 / z21) - math.atan(x11 / z11)
         #roll = math.atan(z21 / y21) - math.atan(z11 / y11)
 
-        v1 = (x21, y21, z21)
-        v2 = (x11, y11, z11)
+        v1 = np.array([x21, y21, z21], dtype=np.float64)
+        v2 = np.array([x11, y11, z11], dtype=np.float64)
 
         #rotate angle
-        angle = np.arccos(np.clip(np.dot(v1/np.linalg.norm(v1), v2/np.linalg.norm(v2)), -1.0, 1.0))
+        a1 = np.linalg.norm(v1)
+        a2 = np.linalg.norm(v2)
+        b1 = np.dot(v1/a1, v2/a2)
+        c1 = np.clip(b1, -1.0, 1.0)
+        angle = np.arccos(c1)
+        #angle = np.arccos(np.clip(np.dot(v1/np.linalg.norm(v1), v2/np.linalg.norm(v2)), -1.0, 1.0))
 
         #rotate axis
         v = np.cross(v1, v2)
@@ -177,6 +209,8 @@ class calibration:
         y = math.sin(angle/2)*cosy
         z = math.sin(angle/2)*cosz
         self.cameraOrient = (w, x, y, z)
+
+        print self.cameraOrient
 
         '''
         e0 = Symbol('e0')
@@ -361,6 +395,7 @@ class objectDetect:
 
                 if self.state == STATE_CALIBRATE:
                     self.find_own_pos(position[0], position[1], position[2])
+                    #self.state == STATE_OPERATE
                 else:
                     print "({}), ({})".format(self.calibration.cameraPos, self.calibration.cameraOrient)
 
@@ -435,6 +470,7 @@ class objectDetect:
 
     # Calibrate the camera's position
     def find_own_pos(self, x, y, z):
+
         print "Detected calibration position:"
         print "({}, {}, {})".format(x, y, z)
         cal = ''
