@@ -77,31 +77,33 @@ class Jaco_rapper():
         self.hand = MoveGroupCommander("Hand")
 
     def pick(self, x, y, z, reference="arm_stand"):
-
+        # clean the scene
+        self.scene.remove_attached_object("6_hand_limb", "box")
+        self.scene.remove_world_object("box")
+        rospy.sleep(1)
+        # publish a demo scene
         p = PoseStamped()
-
+        p.header.frame_id = "tabletop_ontop"
+        # add an object to be grasped
+        p.pose.position.x = x
+        p.pose.position.y = y
+        p.pose.position.z = z
         grasp_pose = PoseStamped()
         grasp_pose.header.frame_id = reference
         grasp_pose.pose.position.x = x
-        grasp_pose.pose.position.y = y + 0.5
+        grasp_pose.pose.position.y = y + 0.35
         grasp_pose.pose.position.z = z
-        orient = Quaternion(0.606301648371, 0.599731279995, 0.381153346104, 0.356991358063)
+        orient = Quaternion(
+            *tf.transformations.quaternion_from_euler(-0.81473782016728, -1.5353834214261521, 0.5270780713957257))
         grasp_pose.pose.orientation = orient
-
-        self.hand.set_joint_value_target([0, 0, 0, 0])
-        self.hand.go()
-
         self.jaco_arm.set_pose_target(grasp_pose)
         self.jaco_arm.go()
-
-        grasp_pose.pose.position.y = y + 0.24
-
-        self.jaco_arm.set_pose_target(grasp_pose)
-        self.jaco_arm.go()
-
-        self.hand.set_joint_value_target([0, 0.15, 0.15, 0.15])
+        rospy.sleep(1)
+        self.hand.set_joint_value_target([0, 0.2, 0.2, 0.2])
         self.hand.go()
-
+        # rospy.sleep(1)
+        # scene.attach_box('6_hand_limb', 'box',touch_links = ['9_finger_index','9_pinkie_index','9_thumb_index'])
+        # rospy.sleep(1)
         grasp_pose.pose.position.y = 0.5
         self.jaco_arm.set_pose_target(grasp_pose)
         self.jaco_arm.go()
@@ -287,7 +289,7 @@ class objectDetect:
 
 
     def tk_create_widgets(self):
-        self.panel = tki.Label(self.root)
+        #self.panel = tki.Label(self.root)
         self.button_yes = tki.Button(self.root, text="Yes", command = self.show_calibrate_xyz)
         self.button_no = tki.Button(self.root, text="No", command = self.calibrate_next)
         self.textbox_x = tki.Entry(self.root)
@@ -302,7 +304,7 @@ class objectDetect:
         self.root.grid_rowconfigure(1, weight=0)
         self.root.grid_columnconfigure(0, weight=0)
         self.root.grid_columnconfigure(4, weight=0)
-        self.panel.grid(row=0, columnspan=5, rowspan=5)
+        #self.panel.grid(row=0, columnspan=5, rowspan=5)
         self.lbl.grid(row = 5, columnspan=5)
         self.button_yes.grid(row = 6, column = 1)
         self.button_no.grid(row = 6, column = 3)
@@ -326,18 +328,24 @@ class objectDetect:
         image = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
 
         rects = []
-        boxes = []
+        colors = []
+        #boxes = []
         #Find the objects with colors
         for k in self.COLOR_RANGES:
             if k != "white":
-                rects.extend(self.findColor(image, k, 20))
+                rs = self.findColor(image, k, 20)
+                rects.extend(rs)
+                n = len(rs)
+                for i in range(0, n):
+                    colors.append(k)
 
-        boxes = self.findColor(image, "white", 20)
+        #boxes = self.findColor(image, "white", 20)
 
 
         if not self.disableImageSub:
             self.objects[:] = []
             #num = 0
+            i = 0
             for rect in rects:
                 if rect[2] * rect[3] > 100:
                     object = Object()
@@ -345,8 +353,10 @@ class objectDetect:
                     object.y = rect[1]
                     object.w = rect[2]
                     object.h = rect[3]
+                    object.color = colors[i]
                     #object.id = num
                     self.objects.append(object)
+                    i += 1
                     #num += 1
                     #cv2.rectangle(image, (rect[0], rect[1]), (rect[0] + rect[2], rect[1] + rect[3]), (255, 255, 255), 3)
 
@@ -354,7 +364,8 @@ class objectDetect:
         for object in self.objects:
             if object.rect:
                 cv2.rectangle(image_bgr, (object.x, object.y), (object.x + object.w, object.y + object.h), (255, 255, 255), 3)
-
+                cv2.putText(image_bgr, object.color, (object.x, object.y - 20), cv.CV_FONT_HERSHEY_COMPLEX_SMALL, 1, (255,255,255))
+        '''
         for box in boxes:
             if box[2] * box[3] > 500:
                 container = Object()
@@ -367,15 +378,19 @@ class objectDetect:
                 # num += 1
                 cv2.rectangle(image_bgr, (box[0], box[1]), (box[0] + box[2], box[1] + box[3]), (255, 0, 0), 3)
 
+        '''
 
         cv2.imwrite("rgb.png", image_bgr)
         # cv2.drawContours(image, contours, -1, (255, 255, 255), 10)
 
-        #cv2.imshow("rgb", image_bgr)
-        #cv.WaitKey(5)
-        rgb_image = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-        rgb_image = PilImage.fromarray(rgb_image)
-        rgb_image = ImageTk.PhotoImage(rgb_image)
+        cv2.imshow("rgb", image_bgr)
+        cv.WaitKey(5)
+        #rgb_image = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+        #rgb_image = PilImage.fromarray(rgb_image)
+        #rgb_image = ImageTk.PhotoImage(rgb_image)
+
+
+        '''
         if self.panel is None:
             self.panel = tki.Label(image=rgb_image)
             self.panel.image = rgb_image
@@ -384,7 +399,7 @@ class objectDetect:
         else:
             self.panel.configure(image=rgb_image)
             self.panel.image = rgb_image
-
+        '''
 
     def cameraInfo_callback(self, cameraInfo):
 
@@ -539,7 +554,6 @@ class objectDetect:
         btn_yes.pack(side="bottom", fill="both", expand="yes", padx=0, pady=0)
         btn_no.pack(side="bottom", fill="both", expand="yes", padx=0, pady=0)
         '''
-
         while True:
             pass
 
