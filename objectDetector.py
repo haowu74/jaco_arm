@@ -24,6 +24,11 @@ from moveit_msgs.msg import Grasp, GripperTranslation, MoveItErrorCodes
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from tf.transformations import quaternion_from_euler
 from copy import deepcopy
+import Tkinter as tki
+from PIL import Image as PilImage
+from PIL import ImageTk
+
+
 
 MAX_OBJECTS = 10
 
@@ -45,6 +50,7 @@ STATE_OPERATE = 1
 class Object:
     COLOR_NONE = "None"
     SHAPE_NONE = "None"
+    rect = False
 
     def __init__(self):
         self.x = -1
@@ -71,33 +77,31 @@ class Jaco_rapper():
         self.hand = MoveGroupCommander("Hand")
 
     def pick(self, x, y, z, reference="arm_stand"):
-        # clean the scene
-        self.scene.remove_attached_object("6_hand_limb", "box")
-        self.scene.remove_world_object("box")
-        rospy.sleep(1)
-        # publish a demo scene
+
         p = PoseStamped()
-        p.header.frame_id = "tabletop_ontop"
-        # add an object to be grasped
-        p.pose.position.x = x
-        p.pose.position.y = y
-        p.pose.position.z = z
+
         grasp_pose = PoseStamped()
         grasp_pose.header.frame_id = reference
         grasp_pose.pose.position.x = x
-        grasp_pose.pose.position.y = y + 0.35
+        grasp_pose.pose.position.y = y + 0.5
         grasp_pose.pose.position.z = z
-        orient = Quaternion(
-            *tf.transformations.quaternion_from_euler(-0.81473782016728, -1.5353834214261521, 0.5270780713957257))
+        orient = Quaternion(0.606301648371, 0.599731279995, 0.381153346104, 0.356991358063)
         grasp_pose.pose.orientation = orient
+
+        self.hand.set_joint_value_target([0, 0, 0, 0])
+        self.hand.go()
+
         self.jaco_arm.set_pose_target(grasp_pose)
         self.jaco_arm.go()
-        rospy.sleep(1)
-        self.hand.set_joint_value_target([0, 0.2, 0.2, 0.2])
+
+        grasp_pose.pose.position.y = y + 0.24
+
+        self.jaco_arm.set_pose_target(grasp_pose)
+        self.jaco_arm.go()
+
+        self.hand.set_joint_value_target([0, 0.15, 0.15, 0.15])
         self.hand.go()
-        # rospy.sleep(1)
-        # scene.attach_box('6_hand_limb', 'box',touch_links = ['9_finger_index','9_pinkie_index','9_thumb_index'])
-        # rospy.sleep(1)
+
         grasp_pose.pose.position.y = 0.5
         self.jaco_arm.set_pose_target(grasp_pose)
         self.jaco_arm.go()
@@ -134,6 +138,31 @@ class calibration:
         y13 = self.points[2][1]
         z13 = self.points[2][2]
 
+        #Simulation
+        x11 = 0.0348
+        y11 = 0.0681
+        z11 = 1.072
+
+        x01 = 0
+        y01 = -0.035
+        z01 = -0.035
+
+        x12 = 0.0748
+        y12 = 0.1571
+        z12 = 0.61
+
+        x02 = 0.075
+        y02 = -0.035
+        z02 = -0.5
+
+        x13 = 0.178
+        y13 = 0.0755
+        z13 = 1.053
+
+        x03 = 0.15
+        y03 = -0.035
+        z03 = -0.035
+
         rsq1 = x11 ** 2 + y11 ** 2 + z11 ** 2
         rsq2 = x12 ** 2 + y12 ** 2 + z12 ** 2
         rsq3 = x13 ** 2 + y13 ** 2 + z13 ** 2
@@ -142,13 +171,15 @@ class calibration:
             results = solve([(x - x01) ** 2 + (y - y01) ** 2 + (z - z01) ** 2 - rsq1,
                             (x - x02) ** 2 + (y - y02) ** 2 + (z - z02) ** 2 - rsq2,
                             (x - x03) ** 2 + (y - y03) ** 2 + (z - z03) ** 2 - rsq3], [x, y, z])
+
         except:
             print "calculating position failed"
             return
 
         for result in results:
-            if result[2] > 0:
+            if result[1] > 0:
                 self.cameraPos = (result[0], result[1], result[2])
+                print self.cameraPos
                 break
 
         x21 = x01 - result[0]
@@ -158,11 +189,16 @@ class calibration:
         #pitch = math.atan(x21 / z21) - math.atan(x11 / z11)
         #roll = math.atan(z21 / y21) - math.atan(z11 / y11)
 
-        v1 = (x21, y21, z21)
-        v2 = (x11, y11, z11)
+        v1 = np.array([x21, y21, z21], dtype=np.float64)
+        v2 = np.array([x11, y11, z11], dtype=np.float64)
 
         #rotate angle
-        angle = np.arccos(np.clip(np.dot(v1/np.linalg.norm(v1), v2/np.linalg.norm(v2)), -1.0, 1.0))
+        a1 = np.linalg.norm(v1)
+        a2 = np.linalg.norm(v2)
+        b1 = np.dot(v1/a1, v2/a2)
+        c1 = np.clip(b1, -1.0, 1.0)
+        angle = np.arccos(c1)
+        #angle = np.arccos(np.clip(np.dot(v1/np.linalg.norm(v1), v2/np.linalg.norm(v2)), -1.0, 1.0))
 
         #rotate axis
         v = np.cross(v1, v2)
@@ -177,6 +213,8 @@ class calibration:
         y = math.sin(angle/2)*cosy
         z = math.sin(angle/2)*cosz
         self.cameraOrient = (w, x, y, z)
+
+        print self.cameraOrient
 
         '''
         e0 = Symbol('e0')
@@ -202,17 +240,20 @@ class calibration:
 
 class objectDetect:
     objects = []
+    containers = []
+
+    disableImageSub = False
+    disablePclSub = False
 
     def __init__(self, feature="Color"):
         self.cubicPose2 = PoseStamped()
-        # self.jaco_rapper = Jaco_rapper()
+        #self.jaco_rapper = Jaco_rapper()
         self.calibration = calibration()
         self.node_name = "objectDetector"
         rospy.init_node(self.node_name)
         rospy.on_shutdown(self.cleanup)
         self.bridge = CvBridge()
         self.image_sub = rospy.Subscriber("/kinect2/sd/image_color_rect", Image, self.image_callback)
-        # self.depth_sub = rospy.Subscriber("/kinect2/hd/image_depth_rect", Image, self.depth_callback)
         self.cameraInfo_sub = rospy.Subscriber("/kinect2/sd/camera_info", CameraInfo, self.cameraInfo_callback)
         self.pcl_sub = rospy.Subscriber("/kinect2/sd/points", PointCloud2, self.pcl_callback)
 
@@ -221,26 +262,60 @@ class objectDetect:
 
         self.transListen = tf.TransformListener()
 
-        self.cv_window_name = self.node_name
-        cv.NamedWindow("rgb", cv.CV_WINDOW_NORMAL)
-        cv.MoveWindow("rgb", 25, 75)
+        self.root = tki.Tk()
+        self.panel = None
 
-        # And one for the depth image
-        #cv.NamedWindow("depth", cv.CV_WINDOW_NORMAL)
-        #cv.MoveWindow("depth", 25, 350)
+        #self.cv_window_name = self.node_name
+        #cv.NamedWindow("rgb", cv.CV_WINDOW_NORMAL)
+        #cv.MoveWindow("rgb", 25, 75)
 
-        # Test color
-        #white = np.uint8([[[255, 255, 255]]])
-        #hsv_white = cv2.cvtColor(white, cv2.COLOR_BGR2HSV)
         self.COLOR_RANGES = {"pink": {"low": np.array([145, 100, 100]), "high": np.array([165, 255, 255])},
                              "yellow": {"low": np.array([20, 100, 100]), "high": np.array([35, 255, 255])},
                              "green": {"low": np.array([45, 100, 50]), "high": np.array([75, 255, 255])},
                              "blue": {"low": np.array([90, 100, 100]), "high": np.array([110, 255, 255])},
-                             "white": {"low": np.array([0, 0, 100]), "high": np.array([20, 0, 255])},
+                             "white": {"low": np.array([0, 0, 200]), "high": np.array([180, 255, 255])},
                              "red": {"low": np.array([160, 100, 100]), "high": np.array([179, 255, 255])}
                              }
 
         self.state = STATE_CALIBRATE
+
+        self.tk_setup()
+
+    def tk_setup(self):
+        self.tk_create_widgets()
+        self.tk_setup_layout()
+
+
+    def tk_create_widgets(self):
+        self.panel = tki.Label(self.root)
+        self.button_yes = tki.Button(self.root, text="Yes", command = self.show_calibrate_xyz)
+        self.button_no = tki.Button(self.root, text="No", command = self.calibrate_next)
+        self.textbox_x = tki.Entry(self.root)
+        self.textbox_y = tki.Entry(self.root)
+        self.textbox_z = tki.Entry(self.root)
+        self.lbl = tki.Label(self.root)
+
+
+
+
+    def tk_setup_layout(self):
+        self.root.grid_rowconfigure(1, weight=0)
+        self.root.grid_columnconfigure(0, weight=0)
+        self.root.grid_columnconfigure(4, weight=0)
+        self.panel.grid(row=0, columnspan=5, rowspan=5)
+        self.lbl.grid(row = 5, columnspan=5)
+        self.button_yes.grid(row = 6, column = 1)
+        self.button_no.grid(row = 6, column = 3)
+
+
+    def show_calibrate_xyz(self):
+        self.textbox_x.grid(row = 7, column = 0)
+        self.textbox_y.grid(row = 7, column = 2)
+        self.textbox_z.grid(row = 7, column = 4)
+
+    def calibrate_next(self):
+        pass
+
 
     def image_callback(self, image):
         try:
@@ -250,96 +325,80 @@ class objectDetect:
             print(e)
         image = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
 
-        rects = self.findColor(image, "red", 20)
-        self.objects[:] = []
-        for rect in rects:
-            if rect[2] * rect[3] > 100:
-                object = Object()
-                object.x = rect[0]
-                object.y = rect[1]
-                object.w = rect[2]
-                object.h = rect[3]
-                self.objects.append(object)
-                cv2.rectangle(image, (rect[0], rect[1]), (rect[0] + rect[2], rect[1] + rect[3]),
-                              (255, 255, 255), 3)
+        rects = []
+        boxes = []
+        #Find the objects with colors
+        for k in self.COLOR_RANGES:
+            if k != "white":
+                rects.extend(self.findColor(image, k, 20))
 
-        cv2.imwrite("rgb.png", image)
-        # cv2.drawContours(image, contours, -1, (255, 255, 255), 10)
-        cv2.imshow("rgb", image)
-        #self.keystroke = cv.WaitKey(5)
+        boxes = self.findColor(image, "white", 20)
 
 
-    def depth_callback(self, image):
-        try:
-            # The depth image is a single-channel float32 image
-            depth_image = self.bridge.imgmsg_to_cv2(image)
-        except CvBridgeError, e:
-            print e
-        depth_array = np.array(depth_image, dtype=np.float32)
-        depth_array_normal = np.zeros((1080, 1920), dtype=np.float32)
-        cv2.normalize(depth_array, depth_array_normal, 0, 1, cv2.NORM_MINMAX)
-        depth_display_image = self.process_depth_image(depth_array_normal)
-        '''
+        if not self.disableImageSub:
+            self.objects[:] = []
+            #num = 0
+            for rect in rects:
+                if rect[2] * rect[3] > 100:
+                    object = Object()
+                    object.x = rect[0]
+                    object.y = rect[1]
+                    object.w = rect[2]
+                    object.h = rect[3]
+                    #object.id = num
+                    self.objects.append(object)
+                    #num += 1
+                    #cv2.rectangle(image, (rect[0], rect[1]), (rect[0] + rect[2], rect[1] + rect[3]), (255, 255, 255), 3)
+
+        #Mark the detected object with white rectangles
         for object in self.objects:
-            print "({}, {}): {}".format(object.y + object.h/2, object.x + object.w/2, depth_array[object.y + object.h/2][object.x + object.w/2])
-            #print depth_array[object.y + object.h/2][object.x + object.w/2]
-        '''
-        cv2.imshow("depth", depth_display_image)
-        # self.image_pub.publish(image)
+            if object.rect:
+                cv2.rectangle(image_bgr, (object.x, object.y), (object.x + object.w, object.y + object.h), (255, 255, 255), 3)
+
+        for box in boxes:
+            if box[2] * box[3] > 500:
+                container = Object()
+                container.x = box[0]
+                container.y = box[1]
+                container.w = box[2]
+                container.h = box[3]
+                # object.id = num
+                self.containers.append(container)
+                # num += 1
+                cv2.rectangle(image_bgr, (box[0], box[1]), (box[0] + box[2], box[1] + box[3]), (255, 0, 0), 3)
+
+
+        cv2.imwrite("rgb.png", image_bgr)
+        # cv2.drawContours(image, contours, -1, (255, 255, 255), 10)
+
+        #cv2.imshow("rgb", image_bgr)
+        #cv.WaitKey(5)
+        rgb_image = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+        rgb_image = PilImage.fromarray(rgb_image)
+        rgb_image = ImageTk.PhotoImage(rgb_image)
+        if self.panel is None:
+            self.panel = tki.Label(image=rgb_image)
+            self.panel.image = rgb_image
+            self.panel.pack(side="left", padx=10, pady=10)
+
+        else:
+            self.panel.configure(image=rgb_image)
+            self.panel.image = rgb_image
+
 
     def cameraInfo_callback(self, cameraInfo):
+
         self.info_pub.publish(cameraInfo)
 
     def pcl_callback(self, point_cloud):
+
         gen = pc2.read_points(point_cloud, skip_nans=False)
         width = point_cloud.width
         height = point_cloud.height
 
         int_data = list(gen)
         pclimage = np.zeros((height, width, 3), dtype=np.float32)
-        '''
-        image = np.zeros((height, width, 3), dtype=np.uint8)
 
-        i = 0
-        for x in int_data:
-
-            # cast float32 to int so that bitwise operations are possible
-            if math.isnan(x[3]):
-                r = g = b = 0
-            else:
-                s = struct.pack('>f', x[3])
-                n = struct.unpack('>l', s)[0]
-                # you can get back the float value by the inverse operations
-                pack = ctypes.c_uint32(n).value
-                r = (pack & 0x00FF0000) >> 16
-                g = (pack & 0x0000FF00) >> 8
-                b = (pack & 0x000000FF)
-            image[i / width][i % width] = (r, g, b)
-            i = i + 1
-        img = pilImage.fromarray(image, 'RGB')
-        img.save('my.png')
-        #img.show()
-        #cv2.imshow("rgb", image)
-
-        image_hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
-
-        rects = self.findColor(image_hsv, "red", 20)
-        self.objects[:] = []
-        for rect in rects:
-            if rect[2] * rect[3] > 100:
-                object = Object()
-                object.x = rect[0]
-                object.y = rect[1]
-                object.w = rect[2]
-                object.h = rect[3]
-                self.objects.append(object)
-                cv2.rectangle(image_hsv, (rect[0], rect[1]), (rect[0] + rect[2], rect[1] + rect[3]),
-                              (255, 255, 255), 3)
-
-        # cv2.drawContours(image, contours, -1, (255, 255, 255), 10)
-        cv2.imshow("rgb", image_hsv)
-        cv2.imwrite("hsv.png", image_hsv)
-        '''
 
         i = 0
         for x in int_data:
@@ -352,18 +411,31 @@ class objectDetect:
         for object in self.objects:
             # print "({}, {}): ({})".format(object.y + object.h/2, object.x + object.w/2, image[object.y + object.h/2][object.x + object.w/2])
             position = pclimage[object.y + object.h / 2][object.x + object.w / 2]
+
             if position[2] < 1.2 and position[2] <> 0:
                 print "Start"
                 print "({}, {}): ({})".format(object.y + object.h / 2, object.x + object.w / 2,
                                               pclimage[object.y + object.h / 2][object.x + object.w / 2])
-                #self.transform(position[0], position[1], position[2])
                 print "End"
 
                 if self.state == STATE_CALIBRATE:
+                    self.disableImageSub = True
+                    object.rect = True
                     self.find_own_pos(position[0], position[1], position[2])
+                    object.rect = False
+                    self.disableImageSub = False
+
+                elif (self.state == STATE_OPERATE) :
+                    self.disableImageSub = True
+                    object.rect = True
+                    self.transform(position[0], position[1], position[2])
+                    object.rect = False
+                    self.disableImageSub = False
+
                 else:
                     print "({}), ({})".format(self.calibration.cameraPos, self.calibration.cameraOrient)
 
+    '''
     def uncompressImage(self, data, encoding='pass'):
         # From https://github.com/ros-perception/vision_opencv/blob/indigo/cv_bridge/python/cv_bridge/core.py
         buf = np.ndarray(shape=(1, len(data.data)), dtype=np.uint8, buffer=data.data)
@@ -372,11 +444,14 @@ class objectDetect:
             return im
         from cv_bridge.boost.cv_bridge_boost import cvtColor2
         return cvtColor2(im, "bgr8", encoding)
+    '''
 
     def transform(self, x, y, z):
         cubicPose = PoseStamped()
-        cubicPose.header.stamp = rospy.Time.now()
-        cubicPose.header.frame_id = '/openni_camera_link'
+        now = rospy.Time.now()
+
+        cubicPose.header.stamp = now
+        cubicPose.header.frame_id = '/calibration'
         cubicPose.pose.position.x = x
         cubicPose.pose.position.y = y
         cubicPose.pose.position.z = z
@@ -384,12 +459,21 @@ class objectDetect:
         cubicPose.pose.orientation.y = 0.0
         cubicPose.pose.orientation.z = 0.0
         cubicPose.pose.orientation.w = 1.0
-        now = rospy.Time.now()
 
-        self.transListen.waitForTransform('openni_camera_link', 'arm_stand', now, rospy.Duration(4.0))
+        br = tf.TransformBroadcaster()
+        br.sendTransform((0, 0.285, -1.12),
+                         (0, -0.069721168, 0.997566518, 0),
+                         now,
+                         "calibration",
+                         "arm_stand")
+
+        self.transListen.waitForTransform('calibration', 'arm_stand', now, rospy.Duration(4.0))
         self.cubicPose2 = self.transListen.transformPose('arm_stand', cubicPose)
         self.pos_pub.publish(self.cubicPose2)
-        # self.jaco_rapper.pick(self.cubicPose2.pose.position.x, self.cubicPose2.pose.position.y, self.cubicPose2.pose.position.z)
+        print(self.cubicPose2)
+        pick_bool = raw_input()
+        if(int(pick_bool) == 1) :
+            self.jaco_rapper.pick(self.cubicPose2.pose.position.x, self.cubicPose2.pose.position.y, self.cubicPose2.pose.position.z)
 
     def cleanup(self):
         print "Shutting down vision node."
@@ -435,8 +519,13 @@ class objectDetect:
 
     # Calibrate the camera's position
     def find_own_pos(self, x, y, z):
-        print "Detected calibration position:"
-        print "({}, {}, {})".format(x, y, z)
+
+        #print "Detected calibration position:"
+        #lbl = tki.Label(self.root, text = "Detected calibration position \n ({}, {}, {}). Use it?".format(x, y, z))
+        self.lbl.configure(text = "Detected calibration position \n ({}, {}, {}). Use it?".format(x, y, z))
+        #lbl.pack(side="bottom", fill="both", expand="yes", padx=10, pady=10)
+        #print "({}, {}, {})".format(x, y, z)
+        '''
         cal = ''
         while cal != 'y' and cal != 'Y' and cal != 'n' and cal != 'N':
             cal = raw_input("Use this point? (y/n)")
@@ -445,14 +534,26 @@ class objectDetect:
             elif cal == 'n' or cal == 'N':
                 return
 
+        btn_yes = tki.Button(self.root, text = "Yes")
+        btn_no = tki.Button(self.root, text = "No")
+        btn_yes.pack(side="bottom", fill="both", expand="yes", padx=0, pady=0)
+        btn_no.pack(side="bottom", fill="both", expand="yes", padx=0, pady=0)
+        '''
+
+        while True:
+            pass
+
         print "Enter the coordination in the frame used by the Arm:"
         x0 = y0 = z0 = ''
         while not is_number(x0):
-            x0 = Float(raw_input("x: "))
+            #x0 = Float(raw_input("x: "))
+            x0 = 0
         while not is_number(y0):
-            y0 = Float(raw_input("y: "))
+            y0 = 0
+            #= Float(raw_input("y: "))
         while not is_number(z0):
-            z0 = Float(raw_input("z: "))
+            z0 = 0
+                #= Float(raw_input("z: "))
 
         self.calibration.points.append((x, y, z))
         self.calibration.pointsRef.append((x0, y0, z0))
@@ -473,7 +574,10 @@ def main(args):
         print "Shutting down vision node."
         cv.DestroyAllWindows()
 
-    rospy.spin()
+    #obj.root = tki.Tk()
+    #obj.panel = None
+    obj.root.mainloop()
+    #since we have mainloop(), rospy.spin() is not required
 
 def is_number(s):
     try:
