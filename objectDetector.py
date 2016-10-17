@@ -22,12 +22,14 @@ from moveit_commander import MoveGroupCommander, PlanningSceneInterface, RobotCo
 from moveit_msgs.msg import PlanningScene, ObjectColor
 from moveit_msgs.msg import Grasp, GripperTranslation, MoveItErrorCodes
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
-from tf.transformations import quaternion_from_euler
+from tf.transformations import quaternion_from_euler,euler_from_quaternion
 from copy import deepcopy
 import Tkinter as tki
-from PIL import Image as PilImage
 from PIL import ImageTk
 
+from jaco_rapper import *
+from object import *
+from calibration import *
 
 
 MAX_OBJECTS = 10
@@ -46,210 +48,15 @@ GRIPPER_EFFORT = [1.0]
 STATE_CALIBRATE = 0
 STATE_OPERATE = 1
 
-
-class Object:
-    COLOR_NONE = "None"
-    SHAPE_NONE = "None"
-    rect = False
-
-    def __init__(self):
-        self.x = -1
-        self.y = -1
-        self.w = 0
-        self.h = 0
-        self.color = self.COLOR_NONE  # Colour should have a name
-        self.shape = self.SHAPE_NONE  # Shape should have a name
-        self.COLOR_RANGES = {"pink": {"low": np.array([145, 100, 100]), "high": np.array([165, 255, 255])},
-                             "yellow": {"low": np.array([20, 100, 100]), "high": np.array([35, 255, 255])},
-                             "green": {"low": np.array([45, 100, 50]), "high": np.array([75, 255, 255])},
-                             "blue": {"low": np.array([90, 100, 100]), "high": np.array([110, 255, 255])},
-                             "white": {"low": np.array([0, 0, 100]), "high": np.array([20, 0, 255])},
-                             "red": {"low": np.array([160, 100, 100]), "high": np.array([179, 255, 255])}
-                             }
-
-
-class Jaco_rapper():
-    def __init__(self):
-        moveit_commander.roscpp_initialize(sys.argv)
-        self.scene = PlanningSceneInterface()
-        self.robot = RobotCommander()
-        self.jaco_arm = MoveGroupCommander("Arm")
-        self.hand = MoveGroupCommander("Hand")
-
-    def pick(self, x, y, z, reference="arm_stand"):
-        # clean the scene
-        self.scene.remove_attached_object("6_hand_limb", "box")
-        self.scene.remove_world_object("box")
-        rospy.sleep(1)
-        # publish a demo scene
-        p = PoseStamped()
-        p.header.frame_id = "tabletop_ontop"
-        # add an object to be grasped
-        p.pose.position.x = x
-        p.pose.position.y = y
-        p.pose.position.z = z
-        grasp_pose = PoseStamped()
-        grasp_pose.header.frame_id = reference
-        grasp_pose.pose.position.x = x
-        grasp_pose.pose.position.y = y + 0.35
-        grasp_pose.pose.position.z = z
-        orient = Quaternion(
-            *tf.transformations.quaternion_from_euler(-0.81473782016728, -1.5353834214261521, 0.5270780713957257))
-        grasp_pose.pose.orientation = orient
-        self.jaco_arm.set_pose_target(grasp_pose)
-        self.jaco_arm.go()
-        rospy.sleep(1)
-        self.hand.set_joint_value_target([0, 0.2, 0.2, 0.2])
-        self.hand.go()
-        # rospy.sleep(1)
-        # scene.attach_box('6_hand_limb', 'box',touch_links = ['9_finger_index','9_pinkie_index','9_thumb_index'])
-        # rospy.sleep(1)
-        grasp_pose.pose.position.y = 0.5
-        self.jaco_arm.set_pose_target(grasp_pose)
-        self.jaco_arm.go()
-
-
-class calibration:
-    points = []
-    pointsRef = []
-    # cameraPos
-    # cameraOrient
-    done = False
-
-    def calPos(self):
-        x = Symbol('x')
-        y = Symbol('y')
-        z = Symbol('z')
-        x01 = self.pointsRef[0][0]
-        y01 = self.pointsRef[0][1]
-        z01 = self.pointsRef[0][2]
-        x02 = self.pointsRef[1][0]
-        y02 = self.pointsRef[1][1]
-        z02 = self.pointsRef[1][2]
-        x03 = self.pointsRef[2][0]
-        y03 = self.pointsRef[2][1]
-        z03 = self.pointsRef[2][2]
-
-        x11 = self.points[0][0]
-        y11 = self.points[0][1]
-        z11 = self.points[0][2]
-        x12 = self.points[1][0]
-        y12 = self.points[1][1]
-        z12 = self.points[1][2]
-        x13 = self.points[2][0]
-        y13 = self.points[2][1]
-        z13 = self.points[2][2]
-
-        #Simulation
-        x11 = 0.0348
-        y11 = 0.0681
-        z11 = 1.072
-
-        x01 = 0
-        y01 = -0.035
-        z01 = -0.035
-
-        x12 = 0.0748
-        y12 = 0.1571
-        z12 = 0.61
-
-        x02 = 0.075
-        y02 = -0.035
-        z02 = -0.5
-
-        x13 = 0.178
-        y13 = 0.0755
-        z13 = 1.053
-
-        x03 = 0.15
-        y03 = -0.035
-        z03 = -0.035
-
-        rsq1 = x11 ** 2 + y11 ** 2 + z11 ** 2
-        rsq2 = x12 ** 2 + y12 ** 2 + z12 ** 2
-        rsq3 = x13 ** 2 + y13 ** 2 + z13 ** 2
-
-        try:
-            results = solve([(x - x01) ** 2 + (y - y01) ** 2 + (z - z01) ** 2 - rsq1,
-                            (x - x02) ** 2 + (y - y02) ** 2 + (z - z02) ** 2 - rsq2,
-                            (x - x03) ** 2 + (y - y03) ** 2 + (z - z03) ** 2 - rsq3], [x, y, z])
-
-        except:
-            print "calculating position failed"
-            return
-
-        for result in results:
-            if result[1] > 0:
-                self.cameraPos = (result[0], result[1], result[2])
-                print self.cameraPos
-                break
-
-        x21 = x01 - result[0]
-        y21 = y01 - result[1]
-        z21 = z01 - result[2]
-        #yaw = math.atan(y21 / x21) - math.atan(y11 / x11)
-        #pitch = math.atan(x21 / z21) - math.atan(x11 / z11)
-        #roll = math.atan(z21 / y21) - math.atan(z11 / y11)
-
-        v1 = np.array([x21, y21, z21], dtype=np.float64)
-        v2 = np.array([x11, y11, z11], dtype=np.float64)
-
-        #rotate angle
-        a1 = np.linalg.norm(v1)
-        a2 = np.linalg.norm(v2)
-        b1 = np.dot(v1/a1, v2/a2)
-        c1 = np.clip(b1, -1.0, 1.0)
-        angle = np.arccos(c1)
-        #angle = np.arccos(np.clip(np.dot(v1/np.linalg.norm(v1), v2/np.linalg.norm(v2)), -1.0, 1.0))
-
-        #rotate axis
-        v = np.cross(v1, v2)
-        vlen = math.sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2])
-        cosx = v[0] / vlen
-        cosy = v[1] / vlen
-        cosz = v[2] / vlen
-
-
-        w = math.cos(angle/2)
-        x = math.sin(angle/2)*cosx
-        y = math.sin(angle/2)*cosy
-        z = math.sin(angle/2)*cosz
-        self.cameraOrient = (w, x, y, z)
-
-        print self.cameraOrient
-
-        '''
-        e0 = Symbol('e0')
-        e1 = Symbol('e1')
-        e2 = Symbol('e2')
-        e3 = Symbol('e3')
-
-        z11 = math.sqrt(x21 * x21 + y21 * y21 + z21 * z21 - x11 * x11 - y11 * y11)
-
-        try:
-            results = solve([x21*(e0**2+e1**2-0.5)+y21*(e1*e2+e0*e3)+z21*(e1*e3-e0*e2)-x11*0.5,
-                             x21*(e1*e2-e0*e3)+y21*(e0**2+e2**2-0.5)+z21*(e2*e3+e0*e1)-y11*0.5,
-                             x21*(e1*e3+e0*e2)+y21*(e2*e3-e0*e1)+z21*(e0**2+e3**2-0.5)-z11*0.5,
-                             e0**2+e1**2+e2**2+e3**2-1], [e0, e1, e2, e3])
-        except:
-            print "calculating angle failed"
-            return
-        for result in results:
-            self.cameraOrient = (result[0],result[1], result[2], result[3])
-        '''
-        self.done = True
-
-
 class objectDetect:
     objects = []
     containers = []
 
-    disableImageSub = False
-    disablePclSub = False
+    disableImageUpdate = False
 
     def __init__(self, feature="Color"):
         self.cubicPose2 = PoseStamped()
-        #self.jaco_rapper = Jaco_rapper()
+        self.jaco_rapper = Jaco_rapper()
         self.calibration = calibration()
         self.node_name = "objectDetector"
         rospy.init_node(self.node_name)
@@ -263,18 +70,15 @@ class objectDetect:
         self.info_pub = rospy.Publisher('/camera_info', CameraInfo, queue_size=100)
 
         self.transListen = tf.TransformListener()
+        self.doPick = False
 
         self.root = tki.Tk()
         self.panel = None
 
-        #self.cv_window_name = self.node_name
-        #cv.NamedWindow("rgb", cv.CV_WINDOW_NORMAL)
-        #cv.MoveWindow("rgb", 25, 75)
-
         self.COLOR_RANGES = {"pink": {"low": np.array([145, 100, 100]), "high": np.array([165, 255, 255])},
                              "yellow": {"low": np.array([20, 100, 100]), "high": np.array([35, 255, 255])},
                              "green": {"low": np.array([45, 100, 50]), "high": np.array([75, 255, 255])},
-                             "blue": {"low": np.array([90, 100, 100]), "high": np.array([110, 255, 255])},
+                             "blue": {"low": np.array([100, 150, 0]), "high": np.array([140, 255, 255])},
                              "white": {"low": np.array([0, 0, 200]), "high": np.array([180, 255, 255])},
                              "red": {"low": np.array([160, 100, 100]), "high": np.array([179, 255, 255])}
                              }
@@ -284,39 +88,150 @@ class objectDetect:
         self.tk_setup()
 
     def tk_setup(self):
+        '''create the gui'''
         self.tk_create_widgets()
         self.tk_setup_layout()
 
 
     def tk_create_widgets(self):
-        #self.panel = tki.Label(self.root)
-        self.button_yes = tki.Button(self.root, text="Yes", command = self.show_calibrate_xyz)
-        self.button_no = tki.Button(self.root, text="No", command = self.calibrate_next)
-        self.textbox_x = tki.Entry(self.root)
-        self.textbox_y = tki.Entry(self.root)
-        self.textbox_z = tki.Entry(self.root)
+        '''create the widgets used in the gui'''
         self.lbl = tki.Label(self.root)
 
+        self.button_yes = tki.Button(self.root, text="Yes", command=self.startCalibrate)
+        self.button_no = tki.Button(self.root, text="No", command=self.choose_other_points)
+        self.textbox1_lblx = tki.Label(self.root, text="x:")
+        self.textbox1_x = tki.Entry(self.root)
+        self.textbox1_lbly = tki.Label(self.root, text="y:")
+
+        self.textbox1_y = tki.Entry(self.root)
+        self.textbox1_lblz = tki.Label(self.root, text="z:")
+
+        self.textbox1_z = tki.Entry(self.root)
+        self.textbox2_lblx = tki.Label(self.root, text="x:")
+
+        self.textbox2_x = tki.Entry(self.root)
+        self.textbox2_lbly = tki.Label(self.root, text="y:")
+
+        self.textbox2_y = tki.Entry(self.root)
+        self.textbox2_lblz = tki.Label(self.root, text="z:")
+
+        self.textbox2_z = tki.Entry(self.root)
+        self.textbox3_lblx = tki.Label(self.root, text="x:")
+
+        self.textbox3_x = tki.Entry(self.root)
+        self.textbox3_lbly = tki.Label(self.root, text="y:")
+
+        self.textbox3_y = tki.Entry(self.root)
+        self.textbox3_lblz = tki.Label(self.root, text="z:")
+
+        self.textbox3_z = tki.Entry(self.root)
+
+        self.lbl1 = tki.Label(self.root)
+        self.lbl2 = tki.Label(self.root)
+        self.lbl3 = tki.Label(self.root)
 
 
 
     def tk_setup_layout(self):
+        '''set up the layout of the gui'''
         self.root.grid_rowconfigure(1, weight=0)
         self.root.grid_columnconfigure(0, weight=0)
         self.root.grid_columnconfigure(4, weight=0)
         #self.panel.grid(row=0, columnspan=5, rowspan=5)
-        self.lbl.grid(row = 5, columnspan=5)
-        self.button_yes.grid(row = 6, column = 1)
-        self.button_no.grid(row = 6, column = 3)
+
+        self.lbl1.grid(row = 5, columnspan=5)
+        self.textbox1_lblx.grid(row=6, column=0)
+        self.textbox1_x.grid(row=6, column=1)
+        self.textbox1_lbly.grid(row=6, column=2)
+        self.textbox1_y.grid(row=6, column=3)
+        self.textbox1_lblz.grid(row=6, column=4)
+        self.textbox1_z.grid(row=6, column=5)
+
+        self.lbl2.grid(row = 7, columnspan=5)
+        self.textbox2_lblx.grid(row=8, column=0)
+        self.textbox2_x.grid(row=8, column=1)
+        self.textbox2_lbly.grid(row=8, column=2)
+        self.textbox2_y.grid(row=8, column=3)
+        self.textbox2_lblz.grid(row=8, column=4)
+        self.textbox2_z.grid(row=8, column=5)
+        self.lbl3.grid(row = 9, columnspan=5)
+        self.textbox3_lblx.grid(row=10, column=0)
+        self.textbox3_x.grid(row=10, column=1)
+        self.textbox3_lbly.grid(row=10, column=2)
+        self.textbox3_y.grid(row=10, column=3)
+        self.textbox3_lblz.grid(row=10, column=4)
+        self.textbox3_z.grid(row=10, column=5)
+
+        self.lbl.grid(row = 11, columnspan=5)
+
+        self.button_yes.grid(row=12, column=1)
+        self.button_no.grid(row=12, column=3)
+
+    def startCalibrate(self):
+        for object in self.objects:
+            if object.inRange:
+                if object.seq == 0:
+                    object.x0 = float(self.textbox1_x.get())
+                    object.y0 = float(self.textbox1_y.get())
+                    object.z0 = float(self.textbox1_z.get())
+                elif object.seq == 1:
+                    object.x0 = float(self.textbox2_x.get())
+                    object.y0 = float(self.textbox2_y.get())
+                    object.z0 = float(self.textbox2_z.get())
+                elif object.seq == 2:
+                    object.x0 = float(self.textbox3_x.get())
+                    object.y0 = float(self.textbox3_y.get())
+                    object.z0 = float(self.textbox3_z.get())
+
+                self.calibration.points.append((object.px, object.py, object.pz))
+                self.calibration.pointsRef.append((object.x0, object.y0, object.z0))
+
+        self.calibration.calPos()
+
+        if self.calibration.done:
+            self.disableImageUpdate = False
+            self.state = STATE_OPERATE
+
+            #hide the widgets for calibration
+            self.textbox1_lblx.pack_forget()
+            self.textbox1_lbly.pack_forget()
+            self.textbox1_lblz.pack_forget()
+            self.textbox1_x.pack_forget()
+            self.textbox1_y.pack_forget()
+            self.textbox1_z.pack_forget()
+
+            self.textbox2_lblx.pack_forget()
+            self.textbox2_lbly.pack_forget()
+            self.textbox2_lblz.pack_forget()
+            self.textbox2_x.pack_forget()
+            self.textbox2_y.pack_forget()
+            self.textbox2_z.pack_forget()
+
+            self.textbox3_lblx.pack_forget()
+            self.textbox3_lbly.pack_forget()
+            self.textbox3_lblz.pack_forget()
+            self.textbox3_x.pack_forget()
+            self.textbox3_y.pack_forget()
+            self.textbox3_z.pack_forget()
+
+            self.lbl.configure(text="Operating mode")
+            self.lbl1.pack_forget()
+            self.lbl2.pack_forget()
+            self.lbl3.pack_forget()
+
+            self.button_yes.pack_forget()
+            self.button_no.pack_forget()
+
+            self.rbtnPick = tki.Radiobutton(self.root, text="Pick", padx=20, variable=self.doPick, value=True)
+            self.rbtnNotPick = tki.Radiobutton(self.root, text="Hold On", padx=20, variable=self.doPick, value=False)
+            self.rbtnPick.grid(row=13, columnspan=3)
+            self.rbtnNotPick.grid(row=13, columnspan=3)
 
 
-    def show_calibrate_xyz(self):
-        self.textbox_x.grid(row = 7, column = 0)
-        self.textbox_y.grid(row = 7, column = 2)
-        self.textbox_z.grid(row = 7, column = 4)
+    def choose_other_points(self):
+        '''Re-choose points to calibrate'''
+        self.disableImageUpdate = False
 
-    def calibrate_next(self):
-        pass
 
 
     def image_callback(self, image):
@@ -330,76 +245,61 @@ class objectDetect:
         rects = []
         colors = []
         #boxes = []
-        #Find the objects with colors
-        for k in self.COLOR_RANGES:
-            if k != "white":
-                rs = self.findColor(image, k, 20)
-                rects.extend(rs)
-                n = len(rs)
-                for i in range(0, n):
-                    colors.append(k)
 
-        #boxes = self.findColor(image, "white", 20)
+        if not self.disableImageUpdate:
+            #find the rects as candidates to be picked up
 
+            #Find the objects with colors
+            for k in self.COLOR_RANGES:
+                if k != "white":
+                    rects = self.findColor(image, k, 20)
 
-        if not self.disableImageSub:
-            self.objects[:] = []
-            #num = 0
-            i = 0
-            for rect in rects:
-                if rect[2] * rect[3] > 100:
-                    object = Object()
-                    object.x = rect[0]
-                    object.y = rect[1]
-                    object.w = rect[2]
-                    object.h = rect[3]
-                    object.color = colors[i]
-                    #object.id = num
-                    self.objects.append(object)
-                    i += 1
-                    #num += 1
-                    #cv2.rectangle(image, (rect[0], rect[1]), (rect[0] + rect[2], rect[1] + rect[3]), (255, 255, 255), 3)
+                    i = 0
+                    for rect in rects:
+                        if rect[2] * rect[3] > 100:
+                            object = Object()
+                            object.x = rect[0]
+                            object.y = rect[1]
+                            object.w = rect[2]
+                            object.h = rect[3]
+                            object.color = k
+                            obj = self.exist(object)
+                            if  obj == None:
+                                self.objects.append(object)
+                            else:
+                                obj.exist = True
+                            i += 1
+
+            #Remove object from the lists if it is no longer seen
+            self.clearObjects()
+
+            #Show detected objects who is within defined range
+            for object in self.objects:
+                if object.inRange:
+                    cv2.rectangle(image_bgr, (object.x, object.y), (object.x + object.w, object.y + object.h), (255, 255, 255), 3)
+                    cv2.putText(image_bgr, object.color, (object.x, object.y - 20), cv.CV_FONT_HERSHEY_COMPLEX_SMALL, 1, (255, 255, 255))
+
 
         #Mark the detected object with white rectangles
-        for object in self.objects:
-            if object.rect:
-                cv2.rectangle(image_bgr, (object.x, object.y), (object.x + object.w, object.y + object.h), (255, 255, 255), 3)
-                cv2.putText(image_bgr, object.color, (object.x, object.y - 20), cv.CV_FONT_HERSHEY_COMPLEX_SMALL, 1, (255,255,255))
-        '''
-        for box in boxes:
-            if box[2] * box[3] > 500:
-                container = Object()
-                container.x = box[0]
-                container.y = box[1]
-                container.w = box[2]
-                container.h = box[3]
-                # object.id = num
-                self.containers.append(container)
-                # num += 1
-                cv2.rectangle(image_bgr, (box[0], box[1]), (box[0] + box[2], box[1] + box[3]), (255, 0, 0), 3)
-
-        '''
-
-        cv2.imwrite("rgb.png", image_bgr)
-        # cv2.drawContours(image, contours, -1, (255, 255, 255), 10)
+        else:
+            for object in self.objects:
+                if object.inRange:
+                    cv2.rectangle(image_bgr, (object.x, object.y), (object.x + object.w, object.y + object.h), (255, 255, 255), 3)
+                    cv2.putText(image_bgr, object.color, (object.x, object.y - 20), cv.CV_FONT_HERSHEY_COMPLEX_SMALL, 1, (255,255,255))
 
         cv2.imshow("rgb", image_bgr)
         cv.WaitKey(5)
-        #rgb_image = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-        #rgb_image = PilImage.fromarray(rgb_image)
-        #rgb_image = ImageTk.PhotoImage(rgb_image)
 
 
-        '''
-        if self.panel is None:
-            self.panel = tki.Label(image=rgb_image)
-            self.panel.image = rgb_image
-            self.panel.pack(side="left", padx=10, pady=10)
+    def exist(self, obj):
+        #Judge if the object has already been detected and stored
+        for object in self.objects:
+            if (object.x - obj.x)**2 + (object.y - obj.y)**2 < 50:
+                return object
+        return None
 
-        else:
-            self.panel.configure(image=rgb_image)
-            self.panel.image = rgb_image
-        '''
+    def clearObjects(self):
+        self.objects = [x for x in self.objects if x.exist]
 
     def cameraInfo_callback(self, cameraInfo):
 
@@ -407,13 +307,15 @@ class objectDetect:
 
     def pcl_callback(self, point_cloud):
 
+        if self.disableImageUpdate:
+            return
+
         gen = pc2.read_points(point_cloud, skip_nans=False)
         width = point_cloud.width
         height = point_cloud.height
 
         int_data = list(gen)
         pclimage = np.zeros((height, width, 3), dtype=np.float32)
-
 
         i = 0
         for x in int_data:
@@ -424,44 +326,54 @@ class objectDetect:
             i = i + 1
 
         for object in self.objects:
-            # print "({}, {}): ({})".format(object.y + object.h/2, object.x + object.w/2, image[object.y + object.h/2][object.x + object.w/2])
             position = pclimage[object.y + object.h / 2][object.x + object.w / 2]
 
             if position[2] < 1.2 and position[2] <> 0:
+                object.inRange = True
                 print "Start"
                 print "({}, {}): ({})".format(object.y + object.h / 2, object.x + object.w / 2,
                                               pclimage[object.y + object.h / 2][object.x + object.w / 2])
                 print "End"
+                object.px = position[0]
+                object.py = position[1]
+                object.pz = position[2]
 
-                if self.state == STATE_CALIBRATE:
-                    self.disableImageSub = True
-                    object.rect = True
-                    self.find_own_pos(position[0], position[1], position[2])
-                    object.rect = False
-                    self.disableImageSub = False
+            else:
+                object.inRange = False
 
-                elif (self.state == STATE_OPERATE) :
-                    self.disableImageSub = True
-                    object.rect = True
-                    self.transform(position[0], position[1], position[2])
-                    object.rect = False
-                    self.disableImageSub = False
+        if self.state == STATE_CALIBRATE:
+            self.calibrate()
 
-                else:
-                    print "({}), ({})".format(self.calibration.cameraPos, self.calibration.cameraOrient)
+        elif self.state == STATE_OPERATE:
+            self.transform()
+        else:
+            print "({}), ({})".format(self.calibration.cameraPos, self.calibration.cameraQuaternion)
 
-    '''
-    def uncompressImage(self, data, encoding='pass'):
-        # From https://github.com/ros-perception/vision_opencv/blob/indigo/cv_bridge/python/cv_bridge/core.py
-        buf = np.ndarray(shape=(1, len(data.data)), dtype=np.uint8, buffer=data.data)
-        im = cv2.imdecode(buf, cv2.IMREAD_ANYCOLOR)
-        if encoding == 'pass':
-            return im
-        from cv_bridge.boost.cv_bridge_boost import cvtColor2
-        return cvtColor2(im, "bgr8", encoding)
-    '''
+    def calibrate(self):
+        i = 0
+        self.lbl.configure(text="Use these three points?")
 
-    def transform(self, x, y, z):
+        for object in self.objects:
+            if object.inRange:
+                self.find_own_pos(object.px, object.py, object.pz, object.color, i)
+                object.seq = i
+                i += 1
+            if i == 3 and self.state == STATE_CALIBRATE:
+                break
+
+        if i == 3:
+            self.disableImageUpdate = True
+
+    def transform(self):
+        for object in self.objects:
+            if object.inRange:
+                self.transformPoint(object)
+
+    def transformPoint(self, object):
+        x = object.px #the (x, y, z) in pointcloud
+        y = object.py
+        z = object.pz
+
         cubicPose = PoseStamped()
         now = rospy.Time.now()
 
@@ -476,19 +388,22 @@ class objectDetect:
         cubicPose.pose.orientation.w = 1.0
 
         br = tf.TransformBroadcaster()
-        br.sendTransform((0, 0.285, -1.12),
-                         (0, -0.069721168, 0.997566518, 0),
+        br.sendTransform((self.calibration.cameraPos[0], self.calibration.cameraPos[1], self.calibration.cameraPos[2]),
+                         (self.calibration.cameraQuaternion[1], self.calibration.cameraQuaternion[2], self.calibration.cameraQuaternion[3], self.calibration.cameraQuaternion[0]),
                          now,
                          "calibration",
                          "arm_stand")
 
-        self.transListen.waitForTransform('calibration', 'arm_stand', now, rospy.Duration(4.0))
-        self.cubicPose2 = self.transListen.transformPose('arm_stand', cubicPose)
-        self.pos_pub.publish(self.cubicPose2)
-        print(self.cubicPose2)
-        pick_bool = raw_input()
-        if(int(pick_bool) == 1) :
-            self.jaco_rapper.pick(self.cubicPose2.pose.position.x, self.cubicPose2.pose.position.y, self.cubicPose2.pose.position.z)
+        self.transListen.waitForTransform('calibration', 'arm_stand', now, rospy.Duration(8.0))
+        cubicPose2 = self.transListen.transformPose('arm_stand', cubicPose)
+        #self.pos_pub.publish(self.cubicPose2)
+        print(cubicPose2)
+        #pick_bool = raw_input()
+        #if(int(pick_bool) == 1) :
+        if self.doPick:
+            self.jaco_rapper.pick(cubicPose2.pose.position.x, cubicPose2.pose.position.y, cubicPose2.pose.position.z, object.color)
+        else:
+            print "Thinking of picking up {} block at ({}, {}, {}).".format(object.color, cubicPose2.pose.position.x, cubicPose2.pose.position.y, cubicPose2.pose.position.z)
 
     def cleanup(self):
         print "Shutting down vision node."
@@ -527,70 +442,25 @@ class objectDetect:
         edges = cv2.Canny(grey, 15.0, 30.0)
         return edges
 
-    def process_depth_image(self, frame):
-        # Just return the raw image for this demo
-
-        return frame
-
     # Calibrate the camera's position
-    def find_own_pos(self, x, y, z):
-
-        #print "Detected calibration position:"
-        #lbl = tki.Label(self.root, text = "Detected calibration position \n ({}, {}, {}). Use it?".format(x, y, z))
-        self.lbl.configure(text = "Detected calibration position \n ({}, {}, {}). Use it?".format(x, y, z))
-        #lbl.pack(side="bottom", fill="both", expand="yes", padx=10, pady=10)
-        #print "({}, {}, {})".format(x, y, z)
-        '''
-        cal = ''
-        while cal != 'y' and cal != 'Y' and cal != 'n' and cal != 'N':
-            cal = raw_input("Use this point? (y/n)")
-            if cal == 'y' or cal == 'Y':
-                break
-            elif cal == 'n' or cal == 'N':
-                return
-
-        btn_yes = tki.Button(self.root, text = "Yes")
-        btn_no = tki.Button(self.root, text = "No")
-        btn_yes.pack(side="bottom", fill="both", expand="yes", padx=0, pady=0)
-        btn_no.pack(side="bottom", fill="both", expand="yes", padx=0, pady=0)
-        '''
-        while True:
-            pass
-
-        print "Enter the coordination in the frame used by the Arm:"
-        x0 = y0 = z0 = ''
-        while not is_number(x0):
-            #x0 = Float(raw_input("x: "))
-            x0 = 0
-        while not is_number(y0):
-            y0 = 0
-            #= Float(raw_input("y: "))
-        while not is_number(z0):
-            z0 = 0
-                #= Float(raw_input("z: "))
-
-        self.calibration.points.append((x, y, z))
-        self.calibration.pointsRef.append((x0, y0, z0))
-
-        if len(self.calibration.points) == 3:
-            self.calibration.calPos()
-
-        if self.calibration.done:
-            self.state = STATE_OPERATE
+    def find_own_pos(self, x, y, z, color, seq):
+        if seq == 0:
+            self.lbl1.configure(text = "Detected calibration position ({}) \n ({}, {}, {}).".format(color, x, y, z))
+        elif seq == 1:
+            self.lbl2.configure(text = "Detected calibration position ({}) \n ({}, {}, {}).".format(color, x, y, z))
+        elif seq == 2:
+            self.lbl3.configure(text = "Detected calibration position ({}) \n ({}, {}, {}).".format(color, x, y, z))
 
         return
 
-
 def main(args):
     try:
+        print(tf.transformations.euler_from_quaternion((-0.9991509151752196, 0.006177326394527312, -0.03775980328552767, 0.01528026828871064)))
         obj = objectDetect()
+        obj.root.mainloop()
     except KeyboardInterrupt:
         print "Shutting down vision node."
         cv.DestroyAllWindows()
-
-    #obj.root = tki.Tk()
-    #obj.panel = None
-    obj.root.mainloop()
     #since we have mainloop(), rospy.spin() is not required
 
 def is_number(s):
