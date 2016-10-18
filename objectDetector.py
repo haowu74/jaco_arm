@@ -18,6 +18,8 @@ from PIL import Image as pilImage
 
 import moveit_commander
 from geometry_msgs.msg import PoseStamped, Pose, Quaternion
+from std_msgs.msg import Bool,String
+
 from moveit_commander import MoveGroupCommander, PlanningSceneInterface, RobotCommander
 from moveit_msgs.msg import PlanningScene, ObjectColor
 from moveit_msgs.msg import Grasp, GripperTranslation, MoveItErrorCodes
@@ -32,12 +34,10 @@ from object import *
 from calibration import *
 
 
-MAX_OBJECTS = 10
+#MAX_OBJECTS = 10
 
 GROUP_NAME_ARM = 'Arm'
-
 GROUP_NAME_GRIPPER = 'Hand'
-
 GRIPPER_FRAME = 'tabletop_ontop'
 
 GRIPPER_OPEN = [0] * 4
@@ -53,10 +53,11 @@ class objectDetect:
     containers = []
 
     disableImageUpdate = False
+    armReady = True
 
     def __init__(self, feature="Color"):
         self.cubicPose2 = PoseStamped()
-        self.jaco_rapper = Jaco_rapper()
+        #self.jaco_rapper = Jaco_rapper()
         self.calibration = calibration()
         self.node_name = "objectDetector"
         rospy.init_node(self.node_name)
@@ -66,8 +67,12 @@ class objectDetect:
         self.cameraInfo_sub = rospy.Subscriber("/kinect2/sd/camera_info", CameraInfo, self.cameraInfo_callback)
         self.pcl_sub = rospy.Subscriber("/kinect2/sd/points", PointCloud2, self.pcl_callback)
 
-        self.pos_pub = rospy.Publisher('/my_pos', PoseStamped, queue_size=100)
+        self.pick_sub = rospy.Subscriber("pick_command", Bool, self.pick_callback)
+
+        self.pos_pub = rospy.Publisher('pick_pose', PoseStamped, queue_size=100)
         self.info_pub = rospy.Publisher('/camera_info', CameraInfo, queue_size=100)
+
+
 
         self.transListen = tf.TransformListener()
         self.doPick = False
@@ -86,6 +91,9 @@ class objectDetect:
         self.state = STATE_CALIBRATE
 
         self.tk_setup()
+
+    def pick_callback(self, ready):
+        self.armReady = ready
 
     def tk_setup(self):
         '''create the gui'''
@@ -167,6 +175,8 @@ class objectDetect:
         self.button_yes.grid(row=12, column=1)
         self.button_no.grid(row=12, column=3)
 
+
+
     def startCalibrate(self):
         for object in self.objects:
             if object.inRange:
@@ -222,19 +232,27 @@ class objectDetect:
             self.button_yes.pack_forget()
             self.button_no.pack_forget()
 
-            self.rbtnPick = tki.Radiobutton(self.root, text="Pick", padx=20, variable=self.doPick, value=True)
-            self.rbtnNotPick = tki.Radiobutton(self.root, text="Hold On", padx=20, variable=self.doPick, value=False)
+            self.rbtnPick = tki.Radiobutton(self.root, text="Pick", padx=20, variable=self.doPick, value=True, command=self.enablePick)
+            self.rbtnNotPick = tki.Radiobutton(self.root, text="Hold On", padx=20, variable=self.doPick, value=False, command=self.disablePick)
             self.rbtnPick.grid(row=13, columnspan=3)
-            self.rbtnNotPick.grid(row=13, columnspan=3)
+            self.rbtnNotPick.grid(row=14, columnspan=3)
 
+    def enablePick(self):
+        self.doPick = True
+
+    def disablePick(self):
+        self.doPick = False
 
     def choose_other_points(self):
         '''Re-choose points to calibrate'''
         self.disableImageUpdate = False
-
+        self.objects = []
 
 
     def image_callback(self, image):
+        #print image.header.stamp
+        if image.header.stamp - rospy.Time.now() > rospy.Duration(1.0):
+            return
         try:
             # image = self.uncompressImage(compressedImage, "bgr8")
             image_bgr = self.bridge.imgmsg_to_cv2(image, "bgr8")
@@ -248,9 +266,11 @@ class objectDetect:
 
         if not self.disableImageUpdate:
             #find the rects as candidates to be picked up
-
+            for obj in self.objects:
+                obj.exist = False
             #Find the objects with colors
             for k in self.COLOR_RANGES:
+
                 if k != "white":
                     rects = self.findColor(image, k, 20)
 
@@ -265,13 +285,15 @@ class objectDetect:
                             object.color = k
                             obj = self.exist(object)
                             if  obj == None:
+                                object.exist = True
                                 self.objects.append(object)
                             else:
                                 obj.exist = True
                             i += 1
 
-            #Remove object from the lists if it is no longer seen
-            self.clearObjects()
+            # Remove object from the lists if it is no longer seen
+            if self.state == STATE_OPERATE:
+                self.clearObjects()
 
             #Show detected objects who is within defined range
             for object in self.objects:
@@ -294,7 +316,7 @@ class objectDetect:
     def exist(self, obj):
         #Judge if the object has already been detected and stored
         for object in self.objects:
-            if (object.x - obj.x)**2 + (object.y - obj.y)**2 < 50:
+            if (object.x - obj.x)**2 + (object.y - obj.y)**2 < 100:
                 return object
         return None
 
@@ -306,6 +328,8 @@ class objectDetect:
         self.info_pub.publish(cameraInfo)
 
     def pcl_callback(self, point_cloud):
+        if point_cloud.header.stamp - rospy.Time.now() > rospy.Duration(1.0):
+            return
 
         if self.disableImageUpdate:
             return
@@ -328,7 +352,7 @@ class objectDetect:
         for object in self.objects:
             position = pclimage[object.y + object.h / 2][object.x + object.w / 2]
 
-            if position[2] < 1.2 and position[2] <> 0:
+            if position[2] < 1.5 and position[2] <> 0:
                 object.inRange = True
                 print "Start"
                 print "({}, {}): ({})".format(object.y + object.h / 2, object.x + object.w / 2,
@@ -365,20 +389,28 @@ class objectDetect:
             self.disableImageUpdate = True
 
     def transform(self):
+        now = rospy.Time.now()
+        br = tf.TransformBroadcaster()
+        br.sendTransform((self.calibration.cameraPos[0], self.calibration.cameraPos[1], self.calibration.cameraPos[2]),
+                         (self.calibration.cameraQuaternion[1], self.calibration.cameraQuaternion[2], self.calibration.cameraQuaternion[3], self.calibration.cameraQuaternion[0]),
+                         now,
+                         "calibration",
+                         "arm_stand")
         for object in self.objects:
             if object.inRange:
-                self.transformPoint(object)
+                self.transformPoint(object, now)
+                break
 
-    def transformPoint(self, object):
+    def transformPoint(self, object, timeStamp):
         x = object.px #the (x, y, z) in pointcloud
         y = object.py
         z = object.pz
 
         cubicPose = PoseStamped()
-        now = rospy.Time.now()
+        now = timeStamp
 
         cubicPose.header.stamp = now
-        cubicPose.header.frame_id = '/calibration'
+        cubicPose.header.frame_id = 'calibration'
         cubicPose.pose.position.x = x
         cubicPose.pose.position.y = y
         cubicPose.pose.position.z = z
@@ -387,21 +419,18 @@ class objectDetect:
         cubicPose.pose.orientation.z = 0.0
         cubicPose.pose.orientation.w = 1.0
 
-        br = tf.TransformBroadcaster()
-        br.sendTransform((self.calibration.cameraPos[0], self.calibration.cameraPos[1], self.calibration.cameraPos[2]),
-                         (self.calibration.cameraQuaternion[1], self.calibration.cameraQuaternion[2], self.calibration.cameraQuaternion[3], self.calibration.cameraQuaternion[0]),
-                         now,
-                         "calibration",
-                         "arm_stand")
-
-        self.transListen.waitForTransform('calibration', 'arm_stand', now, rospy.Duration(8.0))
+        try:
+            self.transListen.waitForTransform('calibration', 'arm_stand', now, rospy.Duration(4.0))
+        except:
+            return
         cubicPose2 = self.transListen.transformPose('arm_stand', cubicPose)
-        #self.pos_pub.publish(self.cubicPose2)
+        cubicPose2.header.frame_id = object.color
         print(cubicPose2)
-        #pick_bool = raw_input()
-        #if(int(pick_bool) == 1) :
         if self.doPick:
-            self.jaco_rapper.pick(cubicPose2.pose.position.x, cubicPose2.pose.position.y, cubicPose2.pose.position.z, object.color)
+            #self.jaco_rapper.pick(cubicPose2.pose.position.x, cubicPose2.pose.position.y, cubicPose2.pose.position.z, object.color,rospy)
+            if self.armReady:
+                self.pos_pub.publish(cubicPose2)
+                self.armReady = False
         else:
             print "Thinking of picking up {} block at ({}, {}, {}).".format(object.color, cubicPose2.pose.position.x, cubicPose2.pose.position.y, cubicPose2.pose.position.z)
 
@@ -444,12 +473,43 @@ class objectDetect:
 
     # Calibrate the camera's position
     def find_own_pos(self, x, y, z, color, seq):
+        if color == "red":
+            x0 = 0
+            y0 = 0.03
+            z0 = -0.72
+        elif color == "blue":
+            x0 = 0.135
+            y0 = 0.035
+            z0 = -0.05
+        elif color == "green":
+            x0 = -0.135
+            y0 = 0.025
+            z0 = -0.05
+
         if seq == 0:
             self.lbl1.configure(text = "Detected calibration position ({}) \n ({}, {}, {}).".format(color, x, y, z))
+            self.textbox1_x.delete(0, tki.END)
+            self.textbox1_x.insert(0, "{}".format(x0))
+            self.textbox1_y.delete(0, tki.END)
+            self.textbox1_y.insert(0, "{}".format(y0))
+            self.textbox1_z.delete(0, tki.END)
+            self.textbox1_z.insert(0, "{}".format(z0))
         elif seq == 1:
             self.lbl2.configure(text = "Detected calibration position ({}) \n ({}, {}, {}).".format(color, x, y, z))
+            self.textbox2_x.delete(0, tki.END)
+            self.textbox2_x.insert(0, "{}".format(x0))
+            self.textbox2_y.delete(0, tki.END)
+            self.textbox2_y.insert(0, "{}".format(y0))
+            self.textbox2_z.delete(0, tki.END)
+            self.textbox2_z.insert(0, "{}".format(z0))
         elif seq == 2:
             self.lbl3.configure(text = "Detected calibration position ({}) \n ({}, {}, {}).".format(color, x, y, z))
+            self.textbox3_x.delete(0, tki.END)
+            self.textbox3_x.insert(0, "{}".format(x0))
+            self.textbox3_y.delete(0, tki.END)
+            self.textbox3_y.insert(0, "{}".format(y0))
+            self.textbox3_z.delete(0, tki.END)
+            self.textbox3_z.insert(0, "{}".format(z0))
 
         return
 

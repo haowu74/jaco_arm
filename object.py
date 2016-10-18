@@ -5,6 +5,8 @@ class Object:
     SHAPE_NONE = "None"
     rect = False
     inRange = False
+    seq = 0
+    exist = False
     def __init__(self):
         self.x = -1
         self.y = -1
